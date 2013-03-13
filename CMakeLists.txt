@@ -17,3 +17,8 @@ execute_process(COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/images
     ${CMAKE_BINARY_DIR}/images
 )
+
+execute_process(COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/misc
+    ${CMAKE_BINARY_DIR}
+)

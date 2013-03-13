@@ -74,21 +74,21 @@ void BlobsLearner::mutate(double prob_mut_filter, double prob_mut_w1, double pro
   if((double)rand()/RAND_MAX < prob_mut_w1){
     unsigned int new_w1 = this->_weights[0] + (((double)rand()/RAND_MAX) * 5) - 2.5;
     if(new_w1 < 0) new_w1 = 0;
-    if(new_w1 > 5) new_w1 = 5;
+    if(new_w1 > 10) new_w1 = 10;
     this->_weights[0] = new_w1;
   }
   
   if((double)rand()/RAND_MAX < prob_mut_w2){
     unsigned int new_w2 = this->_weights[1] + (((double)rand()/RAND_MAX) * 5) - 2.5;
     if(new_w2 < 0) new_w2 = 0;
-    if(new_w2 > 5) new_w2 = 5;
+    if(new_w2 > 10) new_w2 = 10;
     this->_weights[1] = new_w2;
   }
   
   if((double)rand()/RAND_MAX < prob_mut_w3){
     unsigned int new_w3 = this->_weights[2] + (((double)rand()/RAND_MAX) * 5) - 2.5;
     if(new_w3 < 0) new_w3 = 0;
-    if(new_w3 > 5) new_w3 = 5;
+    if(new_w3 > 10) new_w3 = 10;
     this->_weights[0] = new_w3;
   }
 }
@@ -237,6 +237,65 @@ cv::Mat* BlobsLearner::selectPixels(cv::Mat *image){
 }
 
 
+// BUBBLESORT
+// rearranges the two lists according to the fitness value
+// fitness is supposed to be "better" for smaller values (0 is the best)
+void bubbleSort(void * * elements, double * fitness, unsigned int how_many){
+  for (unsigned int i=0; i<how_many; i++){
+    for (int j=i-1; j>=0; j--){
+      unsigned int index = (unsigned int) j;
+      if(fitness[j+1] < fitness[j]){
+	// switch the fitness value
+	double tmp_fit = fitness[index+1];
+	fitness[index+1] = fitness[j];
+	fitness[index] = tmp_fit;
+	
+	
+	void * tmp_el = elements[index+1];
+	elements[index+1] = elements[index];
+	elements[index] = tmp_el;
+      }
+    }
+  }
+}
+
+
+// COMPUTECHOOSINGLIST
+// prepares the list according to which the blobs will be chosen with a probability that depends on their fitness
+// Note: this assumes that the fitness list is in ascending order
+void computeChoosingList(double * fitness, double * probs, unsigned int how_many){
+  double bigger_fitness = fitness[how_many-1];
+  
+  // check special check: all the probabilities are the same
+  if(fitness[0] == bigger_fitness){
+    double fixed_prob = (double)1/how_many;
+    for(unsigned int i=0; i<how_many; i++){
+      probs[i] = fixed_prob;
+    }
+    return;
+  }
+  
+  double total_probs = 0;
+  for(unsigned int i=0; i<how_many; i++){
+    probs[i] = (bigger_fitness - fitness[i]);
+    total_probs += probs[i];
+  }
+  for(unsigned int i=0; i<how_many; i++){
+    probs[i] = probs[i]/total_probs;
+  }
+}
+
+
+BlobsLearner generateRandomBlobsLearner(){
+  unsigned int filter_size = ((double)rand()/RAND_MAX) * 100;
+  unsigned int w1 = ((double)rand()/RAND_MAX) * 10;
+  unsigned int w2 = ((double)rand()/RAND_MAX) * 10;
+  unsigned int w3 = ((double)rand()/RAND_MAX) * 10;
+  
+  return BlobsLearner(filter_size, w1, w2, w3);
+}
+
+
 std::vector<FloatCouple> BlobsLearner::extractCentroids(cv::Mat * hsv_image){
   cv::Mat * selected = this->selectPixels(hsv_image);
   std::vector<Blob*> blobs;
@@ -306,10 +365,128 @@ void init(){
 }
 
 
+void prepareTestSet(std::string filename, std::vector<std::string> * images, std::vector< std::vector<FloatCouple> > * centroids){
+  FileReader fr(filename);
+  if(!fr.is_open()){
+    std::cout << "ERROR! Cannot open test set file " << filename << std::endl;
+    return;
+  }
+  
+  std::vector<std::string> textline;
+  fr.readLine(&textline);
+  if(!fr.good()){
+    std::cout << "ERROR! test set file " << filename << " is empty" << std::endl;
+    return;
+  }
+  
+  unsigned int image_number = 0;
+  
+  bool another_image = true;
+  while(another_image){
+    
+    std::string img_name = textline[0];
+    for(unsigned int i=1; i<textline.size(); i++){
+      img_name = img_name.append(textline[i]);
+    }
+    images->push_back(img_name);
+    
+    textline.clear();
+    fr.readLine(&textline);
+    
+    std::vector<FloatCouple> float_couple_vector;
+    
+    while(textline[0].compare(std::string("--next--"))){
+      float_couple_vector.push_back(FloatCouple(atof(textline[0].c_str()), atof(textline[1].c_str())));
+      textline.clear();
+      fr.readLine(&textline);
+    }
+    
+    centroids->push_back(float_couple_vector);
+    image_number++;
+    
+    textline.clear();
+    fr.readLine(&textline);
+    if(!fr.good()){	// end of file
+      another_image = false;
+    }
+  }
+}
+
+
+std::vector<cv::Vec3b> prepareSamples(std::string filename){
+  
+  std::vector<cv::Vec3b> ret;
+  
+  FileReader fr(filename);
+  if(!fr.is_open()){
+    std::cout << "ERROR! Cannot open samples file " << filename << std::endl;
+  }
+  
+  std::vector<std::string> textline;
+  fr.readLine(&textline);
+  textline.clear();	// the first line is an image file name
+  fr.readLine(&textline);
+  while(fr.good()){
+    if(textline[0].compare(std::string("--next--"))){	// if the string is not "--next--"
+      uint h = atoi(textline[2].c_str());
+      uint s = atoi(textline[3].c_str());
+      uint v = atoi(textline[4].c_str());
+      ret.push_back(cv::Vec3b(h,s,v));
+    }
+    else{	// if the string is "--next--" just jump the next line
+      textline.clear();
+      fr.readLine(&textline);
+    }
+    
+    textline.clear();
+    fr.readLine(&textline);
+  }
+
+  return ret;
+}
+
+
 int main(int argc, char**argv){
   init();
   test();
+  std::vector<cv::Vec3b> samples = prepareSamples(std::string(argv[1]));
+  std::vector<std::string> test_names;
+  std::vector<std::vector<FloatCouple> > test_coordinates;
+  prepareTestSet(std::string(argv[1]), &test_names, &test_coordinates);
+  for(unsigned int i=0; i<test_names.size(); i++){
+    std::cout << test_names[i] << std::endl;
+    for(unsigned int j=0; j<test_coordinates[i].size(); j++){
+      std::cout << test_coordinates[i][j].x << " " << test_coordinates[i][j].y << std::endl;
+    }
+    std::cout << std::endl;
+  }
+
   
+  BlobsLearner * elements[3];
+  double fitness[3];
+  
+  elements[0] = new BlobsLearner(3,1,1,1);
+  elements[1] = new BlobsLearner(2,2,2,2);
+  elements[2] = new BlobsLearner(1,3,3,3);
+  fitness[0] = 0.1;
+  fitness[1] = 0.1;
+  fitness[2] = 0.1;
+  
+  bubbleSort((void**)elements, fitness, 3);
+  
+  for(unsigned int i=0; i<3; i++){
+    std::cout << "el[" << i << "] : <f_size " << elements[i]->getFilterSize() << ">" << std::endl;
+    std::cout << std::endl;
+  }
+  
+  double probs[3];
+  
+  computeChoosingList(fitness, probs, 3);
+  for(unsigned int i=0; i<3; i++){
+    std::cout << "probs[" << i << "] = "  << probs[i] << std::endl;
+  }
+
+
   // create the Blobs Learner and set its parameters
   double weights[3];
   weights[0] = 1;
@@ -319,11 +496,12 @@ int main(int argc, char**argv){
   if(argc > 1){
     configFromFile(std::string(argv[1]), weights, &filter_size);
   }
+  // BlobsLearner b_learner(filter_size, weights[0], weights[1], weights[2]);
+  // b_learner.setSamples(samples);
+  BlobsLearner b_learner = generateRandomBlobsLearner();
   std::cout << "configuration:" << std::endl;
-  std::cout << "weights = <" << weights[0] << ", " << weights[1] << ", " << weights[2] << ">" << std::endl;
-  std::cout << "filter size: " << filter_size << std:: endl;
-  BlobsLearner b_learner(filter_size, weights[0], weights[1], weights[2]);
-  
+  std::cout << "weights = <" << b_learner.getWeights()[0] << ", " << b_learner.getWeights()[1] << ", " << b_learner.getWeights()[2] << ">" << std::endl;
+  std::cout << "filter size: " << b_learner.getFilterSize() << std:: endl;
   
   int capture_dev;
   if(argc < 2) capture_dev = CV_CAP_ANY;
@@ -332,7 +510,7 @@ int main(int argc, char**argv){
   CvCapture* capture = cvCaptureFromCAM(capture_dev);
   if(!capture){  
     fprintf(stderr, "ERROR: capture is NULL \n");  
-    getchar();  
+    getchar();
     return -1;  
   }
   
