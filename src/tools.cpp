@@ -413,20 +413,18 @@ double computeMapsDistance(std::vector<FloatCouple> map1, std::vector<FloatCoupl
   // compute the distance
   double dist = 0;
   if(map2.size() > map1.size()){
-    dist += (map2.size()-map1.size()) * lacking_POI_multiplier * max_dist;
+    dist += (map2.size()-map1.size()) * lacking_POI_multiplier;
   }
   
   if(map1.size() > map2.size()){
-    dist += (map1.size()-map2.size()) * extra_POI_multiplier * max_dist;
+    dist += (map1.size()-map2.size()) * extra_POI_multiplier;
   }
   
   for(unsigned int i=0; i<map2.size(); i++){
     if(associated_to[i] != map1.size()){
-      std::cout << "adding " << distances[associated_to[i]][i] << std::endl;
       dist += distances[associated_to[i]][i];
     }
   }
   
-  std::cout << dist << std::endl;
   return dist;
 }

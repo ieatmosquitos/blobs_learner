@@ -6,12 +6,14 @@
 #include <string>
 #include "FileReader.h"
 #include "tools.cpp"
-#include "mutex.cpp"
 // #include <vector>
 
-
-Mutex * _image_mutex;
-Mutex * _learner_mutex;
+#define LIST_SIZE 20
+#define MAX_GENERATIONS 10
+#define PROB_MUT_FILTER 0.5
+#define PROB_MUT_W1 0.5
+#define PROB_MUT_W2 0.5
+#define PROB_MUT_W3 0.5
 
 
 // returns the "absolute" value of the argument
@@ -29,15 +31,6 @@ template <class T> T min(T arg1, T arg2){
 
 
 class BlobsLearner;
-
-
-struct callBackParameters{
-  cv::Mat * hsv_image;
-  BlobsLearner * blobs_learner;
-  Mutex * image_mutex;
-  Mutex * learner_mutex;
-};
-
 
 class BlobsLearner{
   
@@ -67,28 +60,28 @@ public:
 void BlobsLearner::mutate(double prob_mut_filter, double prob_mut_w1, double prob_mut_w2, double prob_mut_w3){
   if((double)rand()/RAND_MAX < prob_mut_filter){
     unsigned int new_size = this->getFilterSize() + (((double)rand()/RAND_MAX) * 40) - 20;
-    if(new_size < 0) new_size = 0;
+    if(new_size > 800) new_size = 1;	// it is an unsigned int, it can't get negative
     this->setFilterSize(new_size);
   }
   
   if((double)rand()/RAND_MAX < prob_mut_w1){
-    unsigned int new_w1 = this->_weights[0] + (((double)rand()/RAND_MAX) * 5) - 2.5;
-    if(new_w1 < 0) new_w1 = 0;
-    if(new_w1 > 10) new_w1 = 10;
+    unsigned int new_w1 = this->_weights[0] + (((double)rand()/RAND_MAX) * 2) - 1;
+    if(new_w1 > 800 ) new_w1 = 0;
+    else if(new_w1 > 10) new_w1 = 10;
     this->_weights[0] = new_w1;
   }
   
   if((double)rand()/RAND_MAX < prob_mut_w2){
-    unsigned int new_w2 = this->_weights[1] + (((double)rand()/RAND_MAX) * 5) - 2.5;
-    if(new_w2 < 0) new_w2 = 0;
-    if(new_w2 > 10) new_w2 = 10;
+    unsigned int new_w2 = this->_weights[1] + (((double)rand()/RAND_MAX) * 2) - 1;
+    if(new_w2 > 800) new_w2 = 0;
+    else if(new_w2 > 10) new_w2 = 10;
     this->_weights[1] = new_w2;
   }
   
   if((double)rand()/RAND_MAX < prob_mut_w3){
-    unsigned int new_w3 = this->_weights[2] + (((double)rand()/RAND_MAX) * 5) - 2.5;
-    if(new_w3 < 0) new_w3 = 0;
-    if(new_w3 > 10) new_w3 = 10;
+    unsigned int new_w3 = this->_weights[2] + (((double)rand()/RAND_MAX) * 2) - 1;
+    if(new_w3 > 800) new_w3 = 0;
+    else if(new_w3 > 10) new_w3 = 10;
     this->_weights[0] = new_w3;
   }
 }
@@ -120,6 +113,26 @@ BlobsLearner * mating(BlobsLearner * bl1, BlobsLearner * bl2){
 // <<<<<<<<<<<<<<<>>>>>>>>>>>>>>>
 
 
+unsigned int chooseFromList(double * probs, unsigned int how_many){
+  double draw = (double)rand()/RAND_MAX;
+  bool chosen = false;
+  unsigned int i = 0;
+  while(!chosen){
+    if(i==how_many){
+      i = 0;
+    }
+    if(draw < probs[i]){
+      chosen = true;
+    }
+    else{
+      draw = draw - probs[i];
+      i++;
+    }
+  }
+  
+  return i;
+}
+
 
 double BlobsLearner::computeProbability(cv::Vec3b hsv){
   // look for the most similar sample
@@ -141,6 +154,7 @@ double BlobsLearner::computeProbability(cv::Vec3b hsv){
 void BlobsLearner::setFilterSize(unsigned int size){
   delete[] _filter;
   _filter_size = size;
+  if(_filter_size==0) _filter_size = 1;
   
   _filter = new double[_filter_size];
   for(unsigned int i = 0; i<_filter_size; i++){
@@ -176,37 +190,6 @@ BlobsLearner::BlobsLearner(unsigned int filter_size, double w1, double w2, doubl
 
 void BlobsLearner::addObservation(cv::Vec3b hsv){
   this->_samples.push_back(hsv);
-}
-
-
-void mouseCallBack(int event_type, int x, int y, int flags, void * param){
-  callBackParameters * parameters = (callBackParameters *) param;
-  cv::Mat * hsv_image = parameters->hsv_image;
-  BlobsLearner * b_learner = parameters->blobs_learner;
-  Mutex * image_mutex = parameters->image_mutex;
-  Mutex * learner_mutex = parameters->learner_mutex;
-  
-  switch( event_type ){
-  	case CV_EVENT_LBUTTONDOWN:
-	  {
-	    // get H,S,V values
-	    image_mutex->lock();
-	    cv::Vec3b hsv = hsv_image->at<cv::Vec3b>(y,x);
-	    image_mutex->unlock();
-	    std::cout << "H:"<<(int)hsv[0] << " S:" << (int)hsv[1] << " V:" << (int)hsv[2] << "\n";
-	    
-	    // update probabilities
-	    b_learner->addObservation(hsv);
-	    
-	    break;
-	  }
-  	case CV_EVENT_LBUTTONUP:
-	  break;
-  	case CV_EVENT_MOUSEMOVE:
-	  break;
-  	default:
-	  break;
-  }
 }
 
 
@@ -286,13 +269,13 @@ void computeChoosingList(double * fitness, double * probs, unsigned int how_many
 }
 
 
-BlobsLearner generateRandomBlobsLearner(){
+BlobsLearner * generateRandomBlobsLearner(){
   unsigned int filter_size = ((double)rand()/RAND_MAX) * 100;
   unsigned int w1 = ((double)rand()/RAND_MAX) * 10;
   unsigned int w2 = ((double)rand()/RAND_MAX) * 10;
   unsigned int w3 = ((double)rand()/RAND_MAX) * 10;
   
-  return BlobsLearner(filter_size, w1, w2, w3);
+  return new BlobsLearner(filter_size, w1, w2, w3);
 }
 
 
@@ -356,12 +339,6 @@ void test(){
   v2.push_back(FloatCouple(7,7));
   
   std::cout << "distance between the test maps: " << computeMapsDistance(v1, v2, 10, 3, 2) << std::endl;
-}
-
-
-void init(){
-  _image_mutex = new Mutex();
-  _learner_mutex = new Mutex();
 }
 
 
@@ -447,12 +424,16 @@ std::vector<cv::Vec3b> prepareSamples(std::string filename){
 
 
 int main(int argc, char**argv){
-  init();
-  test();
+  // check arguments
+  if(argc < 3){
+    std::cout << "Usage: WeightsFinder <samples_filename> <test_filename>" << std::endl << std::endl;
+    return 0;
+  }
+  
   std::vector<cv::Vec3b> samples = prepareSamples(std::string(argv[1]));
   std::vector<std::string> test_names;
   std::vector<std::vector<FloatCouple> > test_coordinates;
-  prepareTestSet(std::string(argv[1]), &test_names, &test_coordinates);
+  prepareTestSet(std::string(argv[2]), &test_names, &test_coordinates);
   for(unsigned int i=0; i<test_names.size(); i++){
     std::cout << test_names[i] << std::endl;
     for(unsigned int j=0; j<test_coordinates[i].size(); j++){
@@ -460,135 +441,102 @@ int main(int argc, char**argv){
     }
     std::cout << std::endl;
   }
-
   
-  BlobsLearner * elements[3];
-  double fitness[3];
+  BlobsLearner * list[LIST_SIZE];
+  double fitness[LIST_SIZE];
+  double probs[LIST_SIZE];
   
-  elements[0] = new BlobsLearner(3,1,1,1);
-  elements[1] = new BlobsLearner(2,2,2,2);
-  elements[2] = new BlobsLearner(1,3,3,3);
-  fitness[0] = 0.1;
-  fitness[1] = 0.1;
-  fitness[2] = 0.1;
+  // prepare the first learners generation
+  std::cout << "generating the first learners generation...";
+  for(unsigned int i=0; i<LIST_SIZE; i++){
+    list[i] = generateRandomBlobsLearner();
+    list[i]->setSamples(samples);
+  }
+  std::cout << "DONE" << std::endl;
   
-  bubbleSort((void**)elements, fitness, 3);
-  
-  for(unsigned int i=0; i<3; i++){
-    std::cout << "el[" << i << "] : <f_size " << elements[i]->getFilterSize() << ">" << std::endl;
+  for(unsigned int generation=0; generation<MAX_GENERATIONS; generation++){
+    // put all the fitness values to 0
+    for(unsigned int i=0; i<LIST_SIZE; i++){
+      fitness[i] = 0;
+    }
+    
+    // compute the new fitness value of every learner
+    for(unsigned int img=0; img<test_names.size(); img++){
+      std::cout << "opening " << test_names[img] << std::endl;
+      std::cout.flush();
+      cv::Mat image = cv::imread(test_names[img].c_str(), 1);
+      cv::Mat hsv_image;
+      cv::cvtColor(image,hsv_image, CV_BGR2HSV);
+      
+      double max_dist = sqrt(pow(image.cols,2)+pow(image.rows,2));
+      
+      std::cout << "this image has " << test_coordinates[img].size() << " POIs" << std::endl;
+      
+      for(unsigned int i=0; i<LIST_SIZE; i++){
+	fitness[i] = fitness[i] + computeMapsDistance(list[i]->extractCentroids(&hsv_image), test_coordinates[img], max_dist, 3, 3);
+	std::cout << "fitness[" << i << "] = " << fitness[i] << std::endl;
+      }
+    }
+    
+    // now order the learners in fitness order
+    std::cout << "bubble sort" << std::endl;
+    bubbleSort((void**)list, fitness, LIST_SIZE);
+    
+    // prepare the choosing list
+    std::cout << "prepare choosing list" << std::endl;
+    computeChoosingList(fitness, probs, LIST_SIZE);
+    
+    // copy the learners pointers into a side list
+    std::cout << "prepare side list" << std::endl;
+    BlobsLearner * side_list[LIST_SIZE];
+    for(unsigned int i=0; i<LIST_SIZE; i++){
+      side_list[i] = list[i];
+    }
+    
+    // elitism: copy the best child into the next generation
+    std::cout << "elitism" << std::endl;
+    list[0] = new BlobsLearner(side_list[0]->getFilterSize(), side_list[0]->getWeights()[0], side_list[0]->getWeights()[1], side_list[0]->getWeights()[2]);
+    
+    // generate other children
+    std::cout << "mating" << std::endl;
+    for(unsigned int i=1; i<LIST_SIZE-2; i++){
+      std::cout << "\tV";
+      unsigned int draw1 = chooseFromList(probs, LIST_SIZE);
+      unsigned int draw2 = chooseFromList(probs, LIST_SIZE);
+      list[i] = mating(side_list[draw1], side_list[draw2]);
+    }
     std::cout << std::endl;
-  }
-  
-  double probs[3];
-  
-  computeChoosingList(fitness, probs, 3);
-  for(unsigned int i=0; i<3; i++){
-    std::cout << "probs[" << i << "] = "  << probs[i] << std::endl;
-  }
-
-
-  // create the Blobs Learner and set its parameters
-  double weights[3];
-  weights[0] = 1;
-  weights[1] = 1;
-  weights[2] = 1;
-  unsigned int filter_size = 50;
-  if(argc > 1){
-    configFromFile(std::string(argv[1]), weights, &filter_size);
-  }
-  // BlobsLearner b_learner(filter_size, weights[0], weights[1], weights[2]);
-  // b_learner.setSamples(samples);
-  BlobsLearner b_learner = generateRandomBlobsLearner();
-  std::cout << "configuration:" << std::endl;
-  std::cout << "weights = <" << b_learner.getWeights()[0] << ", " << b_learner.getWeights()[1] << ", " << b_learner.getWeights()[2] << ">" << std::endl;
-  std::cout << "filter size: " << b_learner.getFilterSize() << std:: endl;
-  
-  int capture_dev;
-  if(argc < 2) capture_dev = CV_CAP_ANY;
-  else capture_dev = atoi(argv[1]);
-  
-  CvCapture* capture = cvCaptureFromCAM(capture_dev);
-  if(!capture){  
-    fprintf(stderr, "ERROR: capture is NULL \n");  
-    getchar();
-    return -1;  
-  }
-  
-  int frame_number = 0;
-  IplImage * frame;
-  
-  const char * main_image_window_name = "camera";
-  const char * centroids_window_name = "centroids";
-  
-  cvNamedWindow(main_image_window_name, CV_WINDOW_NORMAL);
-  cvNamedWindow(centroids_window_name, CV_WINDOW_NORMAL);
-  cv::moveWindow(main_image_window_name,100,100);
-  cv::moveWindow(centroids_window_name, 500,100);
-  cvStartWindowThread;
-  
-  cv::Mat hsv_image;
     
-  // prepare the structure for passing arguments to the mouse callback
-  callBackParameters to_callback;
-  to_callback.hsv_image = &hsv_image;
-  to_callback.blobs_learner = &b_learner;
-  to_callback.image_mutex = _image_mutex;
-  to_callback.learner_mutex = _learner_mutex;
-  
-  cvSetMouseCallback(main_image_window_name, mouseCallBack, &to_callback);
-  
-  
-  // start the streaming
-  char key = -1;
-  while(key!=27 && key!='q'){
+    // generate two new random children
+    std::cout << "random children" << std::endl;
+    list[LIST_SIZE-2] = generateRandomBlobsLearner();
+    list[LIST_SIZE-1] = generateRandomBlobsLearner();
     
-    frame_number = cvGrabFrame(capture);
-    
-    frame = cvRetrieveFrame(capture,frame_number);
-    if(!frame){
-      fprintf(stderr,"ERROR: frame is null.. \n");
-      getchar();
-      continue;
+    // set the samples for all the learners
+    std::cout << "set samples" << std::endl;
+    for(unsigned int i=0; i<LIST_SIZE; i++){
+      list[i]->setSamples(samples);
     }
     
-    cv::Mat original_image(frame, true);
-    
-    cvShowImage(main_image_window_name, frame);
-    
-    cv::cvtColor(original_image,hsv_image, CV_BGR2HSV);
-    cv::Mat * selected = b_learner.selectPixels(&hsv_image);
-    
-    // get the blobs and produce the blobs image
-    std::vector<Blob*> blobs;
-    getBlobs(selected, &blobs);
-    std::vector<Blob*> big_blobs = blobs;
-    purgeBlobs(&big_blobs, 10);
-    
-    cv::Mat blobs_image(original_image.rows, original_image.cols, CV_8UC3, cv::Scalar(0,0,0));
-    cv::Mat big_blobs_image(original_image.rows, original_image.cols, CV_8UC3, cv::Scalar(0,0,0));
-    
-    // get centroids
-    std::vector<FloatCouple> centroids;
-    getCentroids(&big_blobs, &centroids);
-    
-    // paint centroids image
-    cv::Mat centroids_image(original_image.rows, original_image.cols, CV_8UC3, cv::Scalar(0,0,0));
-    centroidsPainter(&centroids_image, &centroids);
-    
-    cv::imshow(centroids_window_name, centroids_image);
-    
-    
-    // delete stuff
-    delete selected;
-    for(unsigned int i=0; i<blobs.size(); i++){
-      delete blobs[i];
+    // mutations (except for the copied one)
+    std::cout << "mutating" << std::endl;
+    for(unsigned int i=1; i<LIST_SIZE; i++){
+      list[i]->mutate(PROB_MUT_FILTER, PROB_MUT_W1, PROB_MUT_W2, PROB_MUT_W3);
     }
     
-    key = (char) cv::waitKey(20); // non blocking, returns -1 if nothing was pressed
-  }
+    // delete the old generation
+    std::cout << "deleting old generation" << std::endl;
+    for(unsigned int i=0; i<LIST_SIZE; i++){
+      delete side_list[i];
+    }
     
-  cvReleaseCapture(&capture);
-  cvDestroyWindow(main_image_window_name);
+    std::cout << "at the end of generation " << generation << " the best fitness value is " << fitness[0] << std::endl;
+  }
+
+  // report the winner configs
+  std::cout << "the configurations of the winner are:" << std::endl;
+  std::cout << "filter size = " << list[0]->getFilterSize() << std::endl;
+  std::cout << "weights = <" << list[0]->getWeights()[0] << ", " << list[0]->getWeights()[1] << ", " << list[0]->getWeights()[2] << ">" << std::endl;
   
   return 0;
 }
