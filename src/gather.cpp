@@ -83,7 +83,7 @@ void writeOut(const char* image_file_name, const char* output_file_name){
   }
   
   
-  fout << "images/" << image_file_name << std::endl;
+  fout <<  image_file_name << std::endl;
   for(unsigned int i = 0; i < _data.size(); i++){
     fout << _data[i].x << " " << _data[i].y << " " << (int)(_data[i].h) << " " << (int)(_data[i].s) << " " << (int)(_data[i].v) << std::endl;
   }

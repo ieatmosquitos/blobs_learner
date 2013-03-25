@@ -51,15 +51,24 @@ class BlobsLearner{
   unsigned int _filter_size;
   double * _filter;
   double _weights[3];	// similarity weights for H, S, and V
+  double _blobs_size_threshold;
   std::vector<cv::Vec3b> _samples;
   double computeProbability(cv::Vec3b hsv);
-  void setParameters(unsigned int filter_size, double w1, double w2, double w3);
+  void setParameters(unsigned int filter_size, double w1, double w2, double w3, double blobs_size_threshold);
 
 public:
   BlobsLearner();
-  BlobsLearner(unsigned int filter_size, double w1, double w2, double w3);
+  BlobsLearner(unsigned int filter_size, double w1, double w2, double w3, double blobs_size_threshold);
+  ~BlobsLearner(){delete[] _filter;};
   cv::Mat* selectPixels(cv::Mat *image);
+  std::vector<FloatCouple> extractCentroids(cv::Mat * hsv_image);
   void addObservation(cv::Vec3b);
+  void setSamples(std::vector<cv::Vec3b> samples){this->_samples = samples;};
+  void setWeights(double w1, double w2, double w3){this->_weights[0] = w1; this->_weights[1] = w2; this->_weights[2] = w3;};
+  void setFilterSize(unsigned int);
+  double * getWeights(){return this->_weights;};
+  unsigned int getFilterSize(){return _filter_size;};
+  double getBlobsThreshold(){return this->_blobs_size_threshold;};
 };
 
 
@@ -80,7 +89,19 @@ double BlobsLearner::computeProbability(cv::Vec3b hsv){
 }
 
 
-void BlobsLearner::setParameters(unsigned int filter_size, double w1, double w2, double w3){
+void BlobsLearner::setFilterSize(unsigned int size){
+  delete[] _filter;
+  _filter_size = size;
+  if(_filter_size==0) _filter_size = 1;
+  
+  _filter = new double[_filter_size];
+  for(unsigned int i = 0; i<_filter_size; i++){
+    _filter[i] = 1 - i/_filter_size;
+  }
+}
+
+
+void BlobsLearner::setParameters(unsigned int filter_size, double w1, double w2, double w3, double blobs_size_threshold){
   // set weights
   _weights[0] = w1;
   _weights[1] = w2;
@@ -92,16 +113,19 @@ void BlobsLearner::setParameters(unsigned int filter_size, double w1, double w2,
   for(unsigned int i = 0; i<_filter_size; i++){
     _filter[i] = 1 - i/_filter_size;
   }
+  
+  // set the blobs size threshold
+  this->_blobs_size_threshold = blobs_size_threshold;
 }
 
 
 BlobsLearner::BlobsLearner(){
-  setParameters(50, 1, 1, 1);
+  setParameters(50, 1, 1, 1, 10);
 }
 
 
-BlobsLearner::BlobsLearner(unsigned int filter_size, double w1, double w2, double w3){
-  setParameters(filter_size, w1, w2, w3);
+BlobsLearner::BlobsLearner(unsigned int filter_size, double w1, double w2, double w3, double blobs_size_threshold){
+  setParameters(filter_size, w1, w2, w3, blobs_size_threshold);
 }
 
 
@@ -175,7 +199,7 @@ void init(){
 }
 
 
-void configFromFile(std::string filename, double * weights, unsigned int * filter_size){
+void configFromFile(std::string filename, double * weights, unsigned int * filter_size, double * blobs_size_threshold){
   FileReader fr(filename);
   if(!fr.is_open()){
     std::cout << "cannot open configuration file, using default configurations" << std::endl;
@@ -198,6 +222,9 @@ void configFromFile(std::string filename, double * weights, unsigned int * filte
       if((textline[0].compare(std::string("wV"))) == 0){
 	weights[2] = atof(textline[1].c_str());
       }
+      if((textline[0].compare(std::string("blobs_size_threshold"))) == 0){
+	*blobs_size_threshold = atof(textline[1].c_str());
+      }
     }
     textline.clear();
     fr.readLine(&textline);
@@ -214,13 +241,15 @@ int main(int argc, char**argv){
   weights[1] = 1;
   weights[2] = 1;
   unsigned int filter_size = 50;
+  double blobs_threshold = 10;
   if(argc > 1){
-    configFromFile(std::string(argv[1]), weights, &filter_size);
+    configFromFile(std::string(argv[1]), weights, &filter_size, &blobs_threshold);
   }
   std::cout << "configuration:" << std::endl;
   std::cout << "weights = <" << weights[0] << ", " << weights[1] << ", " << weights[2] << ">" << std::endl;
   std::cout << "filter size: " << filter_size << std:: endl;
-  BlobsLearner b_learner(filter_size, weights[0], weights[1], weights[2]);
+  std::cout << "blobs size threshold: " << blobs_threshold << std::endl;
+  BlobsLearner b_learner(filter_size, weights[0], weights[1], weights[2], blobs_threshold);
   
   
   int capture_dev;
@@ -315,7 +344,7 @@ int main(int argc, char**argv){
     std::vector<Blob*> blobs;
     getBlobs(selected, &blobs);
     std::vector<Blob*> big_blobs = blobs;
-    purgeBlobs(&big_blobs, 10);
+    purgeBlobs(&big_blobs, b_learner.getBlobsThreshold());
     
     cv::Mat blobs_image(original_image.rows, original_image.cols, CV_8UC3, cv::Scalar(0,0,0));
     blobsPainter(&blobs_image, &blobs);

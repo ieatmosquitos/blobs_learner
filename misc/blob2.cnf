@@ -2,3 +2,4 @@ filter_size 110
 wH 3
 wS 7
 wV 3
+blobs_size_threshold 10

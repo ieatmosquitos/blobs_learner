@@ -8,12 +8,13 @@
 #include "tools.cpp"
 // #include <vector>
 
-#define LIST_SIZE 20
-#define MAX_GENERATIONS 10
+#define LIST_SIZE 40
+#define MAX_GENERATIONS 40
 #define PROB_MUT_FILTER 0.5
 #define PROB_MUT_W1 0.5
 #define PROB_MUT_W2 0.5
 #define PROB_MUT_W3 0.5
+#define PROB_MUT_THRESHOLD 0.5
 
 
 // returns the "absolute" value of the argument
@@ -37,13 +38,14 @@ class BlobsLearner{
   unsigned int _filter_size;
   double * _filter;
   double _weights[3];	// similarity weights for H, S, and V
+  double _blobs_size_threshold;
   std::vector<cv::Vec3b> _samples;
   double computeProbability(cv::Vec3b hsv);
-  void setParameters(unsigned int filter_size, double w1, double w2, double w3);
+  void setParameters(unsigned int filter_size, double w1, double w2, double w3, double blobs_size_threshold);
 
 public:
   BlobsLearner();
-  BlobsLearner(unsigned int filter_size, double w1, double w2, double w3);
+  BlobsLearner(unsigned int filter_size, double w1, double w2, double w3, double blobs_size_threshold);
   ~BlobsLearner(){delete[] _filter;};
   cv::Mat* selectPixels(cv::Mat *image);
   std::vector<FloatCouple> extractCentroids(cv::Mat * hsv_image);
@@ -53,11 +55,12 @@ public:
   void setFilterSize(unsigned int);
   double * getWeights(){return this->_weights;};
   unsigned int getFilterSize(){return _filter_size;};
-  void mutate(double prob_mut_filter, double prob_mut_w1, double prob_mut_w2, double prob_mut_w3);
+  void mutate(double prob_mut_filter, double prob_mut_w1, double prob_mut_w2, double prob_mut_w3, double prob_mut_threshold);
+  double getBlobsThreshold(){return this->_blobs_size_threshold;};
 };
 
 // <<<<<<< genetics stuff >>>>>>>
-void BlobsLearner::mutate(double prob_mut_filter, double prob_mut_w1, double prob_mut_w2, double prob_mut_w3){
+void BlobsLearner::mutate(double prob_mut_filter, double prob_mut_w1, double prob_mut_w2, double prob_mut_w3, double prob_mut_threshold){
   if((double)rand()/RAND_MAX < prob_mut_filter){
     unsigned int new_size = this->getFilterSize() + (((double)rand()/RAND_MAX) * 40) - 20;
     if(new_size > 800) new_size = 1;	// it is an unsigned int, it can't get negative
@@ -84,6 +87,11 @@ void BlobsLearner::mutate(double prob_mut_filter, double prob_mut_w1, double pro
     else if(new_w3 > 10) new_w3 = 10;
     this->_weights[0] = new_w3;
   }
+  
+  if((double)rand()/RAND_MAX < prob_mut_w3){
+    double new_threshold = this->_blobs_size_threshold * (0.5 + ((double)rand()/RAND_MAX));	// [min 0.5, max 1.5] times the current threshold
+    
+  }
 }
 
 BlobsLearner * mating(BlobsLearner * bl1, BlobsLearner * bl2){
@@ -105,7 +113,15 @@ BlobsLearner * mating(BlobsLearner * bl1, BlobsLearner * bl2){
     filter_size = bl2->getFilterSize();
   }
   
-  BlobsLearner * ret = new BlobsLearner(filter_size, weights[0], weights[1], weights[2]);
+  double blobs_theshold;
+  if( rand() > RAND_MAX/2){
+    blobs_theshold = bl1->getBlobsThreshold();
+  }
+  else{
+    blobs_theshold = bl2->getBlobsThreshold();
+  }
+  
+  BlobsLearner * ret = new BlobsLearner(filter_size, weights[0], weights[1], weights[2], blobs_theshold);
   return ret;
 }
 
@@ -163,7 +179,7 @@ void BlobsLearner::setFilterSize(unsigned int size){
 }
 
 
-void BlobsLearner::setParameters(unsigned int filter_size, double w1, double w2, double w3){
+void BlobsLearner::setParameters(unsigned int filter_size, double w1, double w2, double w3, double blobs_size_threshold){
   // set weights
   _weights[0] = w1;
   _weights[1] = w2;
@@ -175,16 +191,19 @@ void BlobsLearner::setParameters(unsigned int filter_size, double w1, double w2,
   for(unsigned int i = 0; i<_filter_size; i++){
     _filter[i] = 1 - i/_filter_size;
   }
+  
+  // set the blobs size threshold
+  this->_blobs_size_threshold = blobs_size_threshold;
 }
 
 
 BlobsLearner::BlobsLearner(){
-  setParameters(50, 1, 1, 1);
+  setParameters(50, 1, 1, 1, 10);
 }
 
 
-BlobsLearner::BlobsLearner(unsigned int filter_size, double w1, double w2, double w3){
-  setParameters(filter_size, w1, w2, w3);
+BlobsLearner::BlobsLearner(unsigned int filter_size, double w1, double w2, double w3, double blobs_size_threshold){
+  setParameters(filter_size, w1, w2, w3, blobs_size_threshold);
 }
 
 
@@ -227,7 +246,7 @@ void bubbleSort(void * * elements, double * fitness, unsigned int how_many){
   for (unsigned int i=0; i<how_many; i++){
     for (int j=i-1; j>=0; j--){
       unsigned int index = (unsigned int) j;
-      if(fitness[j+1] < fitness[j]){
+      if(fitness[j+1] <= fitness[j]){	// less OR EQUAL in order to prefer new solutions (when the fitness is identical)
 	// switch the fitness value
 	double tmp_fit = fitness[index+1];
 	fitness[index+1] = fitness[j];
@@ -274,8 +293,9 @@ BlobsLearner * generateRandomBlobsLearner(){
   unsigned int w1 = ((double)rand()/RAND_MAX) * 10;
   unsigned int w2 = ((double)rand()/RAND_MAX) * 10;
   unsigned int w3 = ((double)rand()/RAND_MAX) * 10;
+  double bst = ((double)rand()/RAND_MAX) *100;
   
-  return new BlobsLearner(filter_size, w1, w2, w3);
+  return new BlobsLearner(filter_size, w1, w2, w3, bst);
 }
 
 
@@ -284,7 +304,7 @@ std::vector<FloatCouple> BlobsLearner::extractCentroids(cv::Mat * hsv_image){
   std::vector<Blob*> blobs;
   getBlobs(selected, &blobs);
   std::vector<Blob*> big_blobs = blobs;
-  purgeBlobs(&big_blobs, 10);
+  purgeBlobs(&big_blobs, this->_blobs_size_threshold);
   
   std::vector<FloatCouple> centroids;
   getCentroids(&big_blobs, &centroids);
@@ -299,7 +319,7 @@ std::vector<FloatCouple> BlobsLearner::extractCentroids(cv::Mat * hsv_image){
 }
 
 
-void configFromFile(std::string filename, double * weights, unsigned int * filter_size){
+void configFromFile(std::string filename, double * weights, unsigned int * filter_size, double * blobs_size_threshold){
   FileReader fr(filename);
   if(!fr.is_open()){
     std::cout << "cannot open configuration file, using default configurations" << std::endl;
@@ -321,6 +341,9 @@ void configFromFile(std::string filename, double * weights, unsigned int * filte
       }
       if((textline[0].compare(std::string("wV"))) == 0){
 	weights[2] = atof(textline[1].c_str());
+      }
+      if((textline[0].compare(std::string("blobs_size_threshold"))) == 0){
+	*blobs_size_threshold = atof(textline[1].c_str());
       }
     }
     textline.clear();
@@ -473,7 +496,7 @@ int main(int argc, char**argv){
       std::cout << "this image has " << test_coordinates[img].size() << " POIs" << std::endl;
       
       for(unsigned int i=0; i<LIST_SIZE; i++){
-	fitness[i] = fitness[i] + computeMapsDistance(list[i]->extractCentroids(&hsv_image), test_coordinates[img], max_dist, 3, 3);
+	fitness[i] = fitness[i] + computeMapsDistance(list[i]->extractCentroids(&hsv_image), test_coordinates[img], max_dist, 1, 1);
 	std::cout << "fitness[" << i << "] = " << fitness[i] << std::endl;
       }
     }
@@ -482,54 +505,58 @@ int main(int argc, char**argv){
     std::cout << "bubble sort" << std::endl;
     bubbleSort((void**)list, fitness, LIST_SIZE);
     
-    // prepare the choosing list
-    std::cout << "prepare choosing list" << std::endl;
-    computeChoosingList(fitness, probs, LIST_SIZE);
+    if(generation < MAX_GENERATIONS-1){
     
-    // copy the learners pointers into a side list
-    std::cout << "prepare side list" << std::endl;
-    BlobsLearner * side_list[LIST_SIZE];
-    for(unsigned int i=0; i<LIST_SIZE; i++){
-      side_list[i] = list[i];
+      // prepare the choosing list
+      std::cout << "prepare choosing list" << std::endl;
+      computeChoosingList(fitness, probs, LIST_SIZE);
+    
+      // copy the learners pointers into a side list
+      std::cout << "prepare side list" << std::endl;
+      BlobsLearner * side_list[LIST_SIZE];
+      for(unsigned int i=0; i<LIST_SIZE; i++){
+	side_list[i] = list[i];
+      }
+    
+      // elitism: copy the best child into the next generation
+      // two copies are done, because one will be kept as it is, the other will mutate
+      std::cout << "elitism" << std::endl;
+      list[0] = new BlobsLearner(side_list[0]->getFilterSize(), side_list[0]->getWeights()[0], side_list[0]->getWeights()[1], side_list[0]->getWeights()[2], side_list[0]->getBlobsThreshold());
+      list[1] = new BlobsLearner(side_list[0]->getFilterSize(), side_list[0]->getWeights()[0], side_list[0]->getWeights()[1], side_list[0]->getWeights()[2], side_list[0]->getBlobsThreshold());
+    
+      // generate other children
+      std::cout << "mating" << std::endl;
+      for(unsigned int i=2; i<LIST_SIZE-2; i++){
+	std::cout << "\tV";
+	unsigned int draw1 = chooseFromList(probs, LIST_SIZE);
+	unsigned int draw2 = chooseFromList(probs, LIST_SIZE);
+	list[i] = mating(side_list[draw1], side_list[draw2]);
+      }
+      std::cout << std::endl;
+    
+      // generate two new random children
+      std::cout << "random children" << std::endl;
+      list[LIST_SIZE-2] = generateRandomBlobsLearner();
+      list[LIST_SIZE-1] = generateRandomBlobsLearner();
+    
+      // set the samples for all the learners
+      std::cout << "set samples" << std::endl;
+      for(unsigned int i=0; i<LIST_SIZE; i++){
+	list[i]->setSamples(samples);
+      }
+    
+      // mutations (except for the copied one)
+      std::cout << "mutating" << std::endl;
+      for(unsigned int i=1; i<LIST_SIZE; i++){
+	list[i]->mutate(PROB_MUT_FILTER, PROB_MUT_W1, PROB_MUT_W2, PROB_MUT_W3, PROB_MUT_THRESHOLD);
+      }
+    
+      // delete the old generation
+      std::cout << "deleting old generation" << std::endl;
+      for(unsigned int i=0; i<LIST_SIZE; i++){
+	delete side_list[i];
+      }
     }
-    
-    // elitism: copy the best child into the next generation
-    std::cout << "elitism" << std::endl;
-    list[0] = new BlobsLearner(side_list[0]->getFilterSize(), side_list[0]->getWeights()[0], side_list[0]->getWeights()[1], side_list[0]->getWeights()[2]);
-    
-    // generate other children
-    std::cout << "mating" << std::endl;
-    for(unsigned int i=1; i<LIST_SIZE-2; i++){
-      std::cout << "\tV";
-      unsigned int draw1 = chooseFromList(probs, LIST_SIZE);
-      unsigned int draw2 = chooseFromList(probs, LIST_SIZE);
-      list[i] = mating(side_list[draw1], side_list[draw2]);
-    }
-    std::cout << std::endl;
-    
-    // generate two new random children
-    std::cout << "random children" << std::endl;
-    list[LIST_SIZE-2] = generateRandomBlobsLearner();
-    list[LIST_SIZE-1] = generateRandomBlobsLearner();
-    
-    // set the samples for all the learners
-    std::cout << "set samples" << std::endl;
-    for(unsigned int i=0; i<LIST_SIZE; i++){
-      list[i]->setSamples(samples);
-    }
-    
-    // mutations (except for the copied one)
-    std::cout << "mutating" << std::endl;
-    for(unsigned int i=1; i<LIST_SIZE; i++){
-      list[i]->mutate(PROB_MUT_FILTER, PROB_MUT_W1, PROB_MUT_W2, PROB_MUT_W3);
-    }
-    
-    // delete the old generation
-    std::cout << "deleting old generation" << std::endl;
-    for(unsigned int i=0; i<LIST_SIZE; i++){
-      delete side_list[i];
-    }
-    
     std::cout << "at the end of generation " << generation << " the best fitness value is " << fitness[0] << std::endl;
   }
 
@@ -537,6 +564,7 @@ int main(int argc, char**argv){
   std::cout << "the configurations of the winner are:" << std::endl;
   std::cout << "filter size = " << list[0]->getFilterSize() << std::endl;
   std::cout << "weights = <" << list[0]->getWeights()[0] << ", " << list[0]->getWeights()[1] << ", " << list[0]->getWeights()[2] << ">" << std::endl;
-  
+  std::cout << "blobs size threshold = " << list[0]->getBlobsThreshold() << std::endl;
+
   return 0;
 }

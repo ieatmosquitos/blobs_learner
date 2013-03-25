@@ -153,8 +153,11 @@ void BlobsLearner::addObservation(uchar hue, uchar sat, uchar val){
   double increase_value = 1;
   
   this->Hp[hue] += increase_value;
+  if(Hp[hue] > 1) Hp[hue] = 1;
   this->Sp[sat] += increase_value;
+  if(Hp[sat] > 1) Hp[sat] = 1;
   this->Vp[val] += increase_value;
+  if(Hp[val] > 1) Hp[val] = 1;
   for (unsigned int i = 1; i < this->_filter_size; i++){
     uchar index;
     
