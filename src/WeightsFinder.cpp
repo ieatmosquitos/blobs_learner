@@ -6,6 +6,7 @@
 #include <string>
 #include "FileReader.h"
 #include "tools.cpp"
+#include <pthread.h>
 // #include <vector>
 
 #define LIST_SIZE 40
@@ -59,38 +60,59 @@ public:
   double getBlobsThreshold(){return this->_blobs_size_threshold;};
 };
 
+
+// <<<<<<< Multithread stuff >>>>>>>
+struct thread_struct{
+  BlobsLearner * learner;
+  cv::Mat * image;
+  std::vector<FloatCouple> * test_coordinates;
+  double max_dist;
+  double extra;
+  double lack;
+  double * put_result_here;
+};
+
+
+void * threadFunc(void * t_struct){
+  thread_struct * arg = (thread_struct *) t_struct;
+  *(arg->put_result_here) = computeMapsDistance(arg->learner->extractCentroids(arg->image), *(arg->test_coordinates), arg->max_dist, arg->extra, arg->lack);
+}
+
+
+// <<<<<<<<<<<<<<<>>>>>>>>>>>>>>>
+
 // <<<<<<< genetics stuff >>>>>>>
 void BlobsLearner::mutate(double prob_mut_filter, double prob_mut_w1, double prob_mut_w2, double prob_mut_w3, double prob_mut_threshold){
   if((double)rand()/RAND_MAX < prob_mut_filter){
-    unsigned int new_size = this->getFilterSize() + (((double)rand()/RAND_MAX) * 40) - 20;
-    if(new_size > 800) new_size = 1;	// it is an unsigned int, it can't get negative
-    this->setFilterSize(new_size);
+    int new_size = (int)(this->getFilterSize() + (((double)rand()/RAND_MAX) * 40) - 20);
+    if(new_size < 1) new_size = 1;
+    this->setFilterSize((unsigned int)new_size);
   }
   
   if((double)rand()/RAND_MAX < prob_mut_w1){
-    unsigned int new_w1 = this->_weights[0] + (((double)rand()/RAND_MAX) * 2) - 1;
-    if(new_w1 > 800 ) new_w1 = 0;
+    double new_w1 = this->_weights[0] + (((double)rand()/RAND_MAX) * 2) - 1;
+    if(new_w1 < 0 ) new_w1 = 0;
     else if(new_w1 > 10) new_w1 = 10;
     this->_weights[0] = new_w1;
   }
   
   if((double)rand()/RAND_MAX < prob_mut_w2){
-    unsigned int new_w2 = this->_weights[1] + (((double)rand()/RAND_MAX) * 2) - 1;
-    if(new_w2 > 800) new_w2 = 0;
+    double new_w2 = this->_weights[1] + (((double)rand()/RAND_MAX) * 2) - 1;
+    if(new_w2 < 0) new_w2 = 0;
     else if(new_w2 > 10) new_w2 = 10;
     this->_weights[1] = new_w2;
   }
   
   if((double)rand()/RAND_MAX < prob_mut_w3){
-    unsigned int new_w3 = this->_weights[2] + (((double)rand()/RAND_MAX) * 2) - 1;
-    if(new_w3 > 800) new_w3 = 0;
+    double new_w3 = this->_weights[2] + (((double)rand()/RAND_MAX) * 2) - 1;
+    if(new_w3 < 0) new_w3 = 0;
     else if(new_w3 > 10) new_w3 = 10;
-    this->_weights[0] = new_w3;
+    this->_weights[2] = new_w3;
   }
   
-  if((double)rand()/RAND_MAX < prob_mut_w3){
+  if((double)rand()/RAND_MAX < prob_mut_threshold){
     double new_threshold = this->_blobs_size_threshold * (0.5 + ((double)rand()/RAND_MAX));	// [min 0.5, max 1.5] times the current threshold
-    
+    this->_blobs_size_threshold = new_threshold;
   }
 }
 
@@ -124,7 +146,6 @@ BlobsLearner * mating(BlobsLearner * bl1, BlobsLearner * bl2){
   BlobsLearner * ret = new BlobsLearner(filter_size, weights[0], weights[1], weights[2], blobs_theshold);
   return ret;
 }
-
 
 // <<<<<<<<<<<<<<<>>>>>>>>>>>>>>>
 
@@ -290,9 +311,9 @@ void computeChoosingList(double * fitness, double * probs, unsigned int how_many
 
 BlobsLearner * generateRandomBlobsLearner(){
   unsigned int filter_size = ((double)rand()/RAND_MAX) * 100;
-  unsigned int w1 = ((double)rand()/RAND_MAX) * 10;
-  unsigned int w2 = ((double)rand()/RAND_MAX) * 10;
-  unsigned int w3 = ((double)rand()/RAND_MAX) * 10;
+  double w1 = ((double)rand()/RAND_MAX) * 10;
+  double w2 = ((double)rand()/RAND_MAX) * 10;
+  double w3 = ((double)rand()/RAND_MAX) * 10;
   double bst = ((double)rand()/RAND_MAX) *100;
   
   return new BlobsLearner(filter_size, w1, w2, w3, bst);
@@ -495,8 +516,28 @@ int main(int argc, char**argv){
       
       std::cout << "this image has " << test_coordinates[img].size() << " POIs" << std::endl;
       
+      thread_struct t_structs[LIST_SIZE];
+      pthread_t threads[LIST_SIZE];
+      double fitness_increment[LIST_SIZE];
+      
+      // prepare thread structs and launch threads
+      std::cout << "launching threads" << std::endl;
       for(unsigned int i=0; i<LIST_SIZE; i++){
-	fitness[i] = fitness[i] + computeMapsDistance(list[i]->extractCentroids(&hsv_image), test_coordinates[img], max_dist, 1, 1);
+	t_structs[i].learner = list[i];
+	t_structs[i].image = &hsv_image;
+	t_structs[i].test_coordinates = &(test_coordinates[img]);
+	t_structs[i].max_dist = max_dist;
+	t_structs[i].extra = 1;
+	t_structs[i].lack = 1;
+	t_structs[i].put_result_here = fitness_increment+i;
+	
+	pthread_create(threads+i, NULL, threadFunc, t_structs+i);
+      }
+      
+      std::cout << "waiting for threads to compute fitness increments" << std::endl;
+      for(unsigned int i=0; i<LIST_SIZE; i++){
+	pthread_join(threads[i], NULL);
+	fitness[i] += fitness_increment[i];
 	std::cout << "fitness[" << i << "] = " << fitness[i] << std::endl;
       }
     }
@@ -527,12 +568,10 @@ int main(int argc, char**argv){
       // generate other children
       std::cout << "mating" << std::endl;
       for(unsigned int i=2; i<LIST_SIZE-2; i++){
-	std::cout << "\tV";
 	unsigned int draw1 = chooseFromList(probs, LIST_SIZE);
 	unsigned int draw2 = chooseFromList(probs, LIST_SIZE);
 	list[i] = mating(side_list[draw1], side_list[draw2]);
       }
-      std::cout << std::endl;
     
       // generate two new random children
       std::cout << "random children" << std::endl;
@@ -558,6 +597,7 @@ int main(int argc, char**argv){
       }
     }
     std::cout << "at the end of generation " << generation << " the best fitness value is " << fitness[0] << std::endl;
+    std::cout << "parameters of the best one: FSIZE = " << list[0]->getFilterSize() << "\tweights = <" << list[0]->getWeights()[0] << ", " << list[0]->getWeights()[1] << ", " << list[0]->getWeights()[2] << ">\tBTHRESH = " << list[0]->getBlobsThreshold() << std::endl;
   }
 
   // report the winner configs
