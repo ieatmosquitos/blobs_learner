@@ -16,7 +16,7 @@
 #define PROB_MUT_W2 0.5
 #define PROB_MUT_W3 0.5
 #define PROB_MUT_THRESHOLD 0.5
-
+#define NumThreads 4
 
 // returns the "absolute" value of the argument
 template <class T> T abs(T arg){
@@ -520,8 +520,8 @@ int main(int argc, char**argv){
       pthread_t threads[LIST_SIZE];
       double fitness_increment[LIST_SIZE];
       
-      // prepare thread structs and launch threads
-      std::cout << "launching threads" << std::endl;
+      // prepare thread structs
+      std::cout << "preparing thread structures" << std::endl;
       for(unsigned int i=0; i<LIST_SIZE; i++){
 	t_structs[i].learner = list[i];
 	t_structs[i].image = &hsv_image;
@@ -534,11 +534,21 @@ int main(int argc, char**argv){
 	pthread_create(threads+i, NULL, threadFunc, t_structs+i);
       }
       
-      std::cout << "waiting for threads to compute fitness increments" << std::endl;
-      for(unsigned int i=0; i<LIST_SIZE; i++){
-	pthread_join(threads[i], NULL);
-	fitness[i] += fitness_increment[i];
-	std::cout << "fitness[" << i << "] = " << fitness[i] << std::endl;
+      // launch threads
+      std::cout << "computing fitnesses (" << NumThreads << " threads)" << std::endl;
+      for(unsigned int i=0; i<LIST_SIZE; i += NumThreads){
+	unsigned int launched = 0;
+	for(unsigned int t=0; t<NumThreads; t++){
+	  if(i+t < LIST_SIZE){
+	    launched++;
+	    pthread_create(threads+(i+t), NULL, threadFunc, t_structs+(i+t));
+	  }
+	}
+	for(unsigned int l=0; l<launched; l++){
+	  pthread_join(threads[i+l], NULL);
+	  fitness[i+l] += fitness_increment[i+l];
+	  std::cout << "fitness[" << i+l << "] = " << fitness[i+l] << std::endl;
+	}
       }
     }
     
