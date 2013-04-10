@@ -391,7 +391,7 @@ double computeMapsDistance(std::vector<FloatCouple> map1, std::vector<FloatCoupl
 	p2_index = nextMin(distances[check_this_one], blacklist, map2.size());
 	if(p2_index < map2.size()){
 	  if(associated_to[p2_index] == map1.size() || distances[check_this_one][p2_index] < distances[associated_to[p2_index]][p2_index]){
-	    if(associated_to[p2_index] == map1.size()) to_be_checked[associated_to[p2_index]] = true;
+	    if(associated_to[p2_index] != map1.size()) to_be_checked[associated_to[p2_index]] = true;
 	    associated_to[p2_index] = check_this_one;
 	    found_an_association = true;
 	  }
