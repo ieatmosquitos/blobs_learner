@@ -16,7 +16,7 @@
 #define PROB_MUT_W2 0.5
 #define PROB_MUT_W3 0.5
 #define PROB_MUT_THRESHOLD 0.5
-#define NumThreads 4
+#define NumThreads 8
 
 // returns the "absolute" value of the argument
 template <class T> T abs(T arg){
@@ -531,7 +531,7 @@ int main(int argc, char**argv){
 	t_structs[i].lack = 1;
 	t_structs[i].put_result_here = fitness_increment+i;
 	
-	pthread_create(threads+i, NULL, threadFunc, t_structs+i);
+	// pthread_create(threads+i, NULL, threadFunc, t_structs+i);
       }
       
       // launch threads
